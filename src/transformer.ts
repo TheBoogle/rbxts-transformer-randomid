@@ -37,6 +37,15 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 		return visitExpression(context, node);
 	}
 
+	if (ts.isEnumDeclaration(node) && ts.isEnumConst(node)) {
+		if (!ts.getJSDocTags(node).find((tag) => tag.tagName.text === "uuid")) {
+			console.log("Skipping enum declaration without @uuid tag");
+			return node;
+		}
+
+		return visitEnumDeclaration(context, node);
+	}
+
 	return context.transform(node);
 }
 
@@ -54,6 +63,23 @@ function visitExpression(context: TransformContext, node: ts.Expression): ts.Exp
 	}
 
 	return context.transform(node);
+}
+
+function visitEnumDeclaration(context: TransformContext, node: ts.EnumDeclaration): ts.EnumDeclaration {
+	const { factory } = context;
+
+	const members = node.members.map((member) => {
+		const name = member.name;
+
+		return factory.updateEnumMember(member, name, factory.createStringLiteral(crypto.randomUUID()));
+	});
+
+	return factory.updateEnumDeclaration(
+		node,
+		node.modifiers,
+		node.name,
+		node.members.length > 0 ? members : node.members,
+	);
 }
 
 /**

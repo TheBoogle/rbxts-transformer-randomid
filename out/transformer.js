@@ -33,6 +33,13 @@ function visitNode(context, node) {
     if (typescript_1.default.isExpression(node)) {
         return visitExpression(context, node);
     }
+    if (typescript_1.default.isEnumDeclaration(node) && typescript_1.default.isEnumConst(node)) {
+        if (!typescript_1.default.getJSDocTags(node).find(function (tag) { return tag.tagName.text === "uuid"; })) {
+            console.log("Skipping enum declaration without @uuid tag");
+            return node;
+        }
+        return visitEnumDeclaration(context, node);
+    }
     return context.transform(node);
 }
 /**
@@ -47,6 +54,14 @@ function visitExpression(context, node) {
         }
     }
     return context.transform(node);
+}
+function visitEnumDeclaration(context, node) {
+    var factory = context.factory;
+    var members = node.members.map(function (member) {
+        var name = member.name;
+        return factory.updateEnumMember(member, name, factory.createStringLiteral(crypto.randomUUID()));
+    });
+    return factory.updateEnumDeclaration(node, node.modifiers, node.name, node.members.length > 0 ? members : node.members);
 }
 /**
  * Entry point for the transformer.
