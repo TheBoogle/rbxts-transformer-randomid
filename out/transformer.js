@@ -33,6 +33,7 @@ function visitNode(context, node) {
     if (typescript_1.default.isExpression(node)) {
         return visitExpression(context, node);
     }
+    console.log(typescript_1.default.isEnumDeclaration(node));
     if (typescript_1.default.isEnumDeclaration(node) && typescript_1.default.isEnumConst(node)) {
         if (!typescript_1.default.getJSDocTags(node).find(function (tag) { return tag.tagName.text === "uuid"; })) {
             console.log("Skipping enum declaration without @uuid tag");

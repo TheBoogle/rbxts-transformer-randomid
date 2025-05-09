@@ -37,6 +37,8 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 		return visitExpression(context, node);
 	}
 
+	console.log(ts.isEnumDeclaration(node));
+
 	if (ts.isEnumDeclaration(node) && ts.isEnumConst(node)) {
 		if (!ts.getJSDocTags(node).find((tag) => tag.tagName.text === "uuid")) {
 			console.log("Skipping enum declaration without @uuid tag");
