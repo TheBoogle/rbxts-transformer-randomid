@@ -9,8 +9,9 @@
 			"ES2015",
 			"DOM"
 		],
+		"declaration": false,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true
-	}
+	},
 }
