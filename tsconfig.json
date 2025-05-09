@@ -4,14 +4,19 @@
 		"module": "commonjs",
 		"outDir": "out",
 		"rootDir": "src",
+		"typeRoots": [
+			"node_modules/@types"
+		],
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+		"downlevelIteration": true,
 		"strict": true,
 		"lib": [
 			"ES2015",
 			"DOM"
 		],
-		"declaration": false,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
-		"forceConsistentCasingInFileNames": true
+		"forceConsistentCasingInFileNames": true,
 	},
 }
