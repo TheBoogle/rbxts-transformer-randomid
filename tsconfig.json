@@ -9,6 +9,7 @@
 		],
 		"experimentalDecorators": true,
 		"emitDecoratorMetadata": true,
+		"declaration": true,
 		"downlevelIteration": true,
 		"strict": true,
 		"lib": [

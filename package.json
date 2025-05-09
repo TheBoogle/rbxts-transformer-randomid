@@ -9,7 +9,6 @@
 		"typescript": "^5.2.2"
 	},
 	"scripts": {
-		"prepare": "npm run build",
 		"build": "tsc",
 		"watch": "tsc -w"
 	},
@@ -24,7 +23,6 @@
 		"prettier": "^2.2.1"
 	},
 	"files": [
-		"out",
-		"src/**/*.d.ts"
+		"out"
 	]
 }
