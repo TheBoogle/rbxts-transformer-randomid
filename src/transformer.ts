@@ -1,17 +1,13 @@
 import ts from "typescript";
+import crypto from "crypto";
 
-/**
- * This is the transformer's configuration, the values are passed from the tsconfig.
- */
 export interface TransformerConfig {
 	_: void;
 }
 
-/**
- * Utility context object to hold references.
- */
 export class TransformContext {
 	public factory: ts.NodeFactory;
+	public readonly EnumMemberUUIDs = new Map<ts.Symbol, string>();
 
 	constructor(
 		public program: ts.Program,
@@ -21,78 +17,97 @@ export class TransformContext {
 		this.factory = context.factory;
 	}
 
-	/**
-	 * Recursively transforms the children of a node.
-	 */
 	transform<T extends ts.Node>(node: T): T {
 		return ts.visitEachChild(node, (node) => visitNode(this, node), this.context);
 	}
 }
 
 /**
- * Visit a node and determine if we want to transform it.
+ * Visits each node and applies necessary transforms.
  */
 function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 	if (ts.isExpression(node)) {
 		return visitExpression(context, node);
 	}
 
-	console.log(ts.isEnumDeclaration(node));
-
-	if (ts.isEnumDeclaration(node) && ts.isEnumConst(node)) {
-		if (!ts.getJSDocTags(node).find((tag) => tag.tagName.text === "uuid")) {
-			console.log("Skipping enum declaration without @uuid tag");
-			return node;
-		}
-
-		return visitEnumDeclaration(context, node);
-	}
-
 	return context.transform(node);
 }
 
 /**
- * Transforms `$id()` calls into string literals containing UUIDs.
+ * Transforms:
+ * - $id() → a new UUID per call
+ * - Enum.Member → assigned UUID (lazily generated)
  */
 function visitExpression(context: TransformContext, node: ts.Expression): ts.Expression {
+	const { factory } = context;
+
+	// $id() → new UUID
 	if (ts.isCallExpression(node)) {
 		const expression = node.expression;
-
 		if (ts.isIdentifier(expression) && expression.text === "$id") {
-			const uuid = crypto.randomUUID(); // Requires Node 15.6+
-			return context.factory.createStringLiteral(uuid);
+			return factory.createStringLiteral(crypto.randomUUID());
+		}
+	}
+
+	// Enum.Member → "uuid"
+	if (ts.isPropertyAccessExpression(node)) {
+		const checker = context.program.getTypeChecker();
+		const memberSymbol = checker.getSymbolAtLocation(node.name);
+		const enumSymbol = checker.getSymbolAtLocation(node.expression);
+
+		if (memberSymbol && enumSymbol && isUuidEnum(enumSymbol)) {
+			const uuid = getOrCreateUuid(context, memberSymbol);
+
+			// Force a replacement node every time, even if UUID hasn't changed
+			return factory.createStringLiteral(uuid);
 		}
 	}
 
 	return context.transform(node);
 }
 
-function visitEnumDeclaration(context: TransformContext, node: ts.EnumDeclaration): ts.EnumDeclaration {
-	const { factory } = context;
+/**
+ * Returns true if the enum declaration has a @uuid JSDoc tag.
+ */
+function isUuidEnum(symbol: ts.Symbol): boolean {
+	const declarations = symbol.getDeclarations();
+	if (!declarations) return false;
 
-	const members = node.members.map((member) => {
-		const name = member.name;
+	for (const decl of declarations) {
+		if (ts.isEnumDeclaration(decl)) {
+			const tags = ts.getJSDocTags(decl);
+			if (tags.some((tag) => tag.tagName.text === "uuid")) {
+				return true;
+			}
+		}
+	}
 
-		return factory.updateEnumMember(member, name, factory.createStringLiteral(crypto.randomUUID()));
-	});
-
-	return factory.updateEnumDeclaration(
-		node,
-		node.modifiers,
-		node.name,
-		node.members.length > 0 ? members : node.members,
-	);
+	return false;
 }
 
 /**
- * Entry point for the transformer.
+ * Returns the existing UUID for this member, or assigns a new one.
  */
-export default function transformer(
-	program: ts.Program,
-	config: TransformerConfig,
-): ts.TransformerFactory<ts.SourceFile> {
+function getOrCreateUuid(context: TransformContext, symbol: ts.Symbol): string {
+	let existing = context.EnumMemberUUIDs.get(symbol);
+	if (!existing) {
+		existing = crypto.randomUUID();
+		context.EnumMemberUUIDs.set(symbol, existing);
+	}
+	return existing;
+}
+
+/**
+ * Transformer entry point.
+ */
+function transformer(program: ts.Program, config: TransformerConfig): ts.TransformerFactory<ts.SourceFile> {
 	return (context: ts.TransformationContext) => {
 		const transformContext = new TransformContext(program, context, config);
-		return (file: ts.SourceFile) => transformContext.transform(file);
+		return (file: ts.SourceFile) => {
+			const transformed = transformContext.transform(file);
+
+			// Touch: update with no-op to ensure emit
+			return ts.factory.updateSourceFile(transformed, [...transformed.statements], true);
+		};
 	};
 }
