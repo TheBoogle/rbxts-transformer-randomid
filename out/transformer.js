@@ -10,6 +10,31 @@ var __values = (this && this.__values) || function(o) {
     };
     throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
 };
+var __read = (this && this.__read) || function (o, n) {
+    var m = typeof Symbol === "function" && o[Symbol.iterator];
+    if (!m) return o;
+    var i = m.call(o), r, ar = [], e;
+    try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+    }
+    catch (error) { e = { error: error }; }
+    finally {
+        try {
+            if (r && !r.done && (m = i["return"])) m.call(i);
+        }
+        finally { if (e) throw e.error; }
+    }
+    return ar;
+};
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -35,9 +60,8 @@ var TransformContext = /** @class */ (function () {
         var e_1, _a;
         var _this = this;
         var checker = this.program.getTypeChecker();
-        try {
-            for (var _b = __values(this.program.getSourceFiles()), _c = _b.next(); !_c.done; _c = _b.next()) {
-                var sourceFile = _c.value;
+        var _loop_1 = function (sourceFile) {
+            if (sourceFile.isDeclarationFile || sourceFile.fileName.endsWith(".d.ts")) {
                 typescript_1.default.forEachChild(sourceFile, function (node) {
                     var e_2, _a;
                     if (!typescript_1.default.isEnumDeclaration(node))
@@ -48,12 +72,15 @@ var TransformContext = /** @class */ (function () {
                     var symbol = checker.getSymbolAtLocation(node.name);
                     if (!symbol)
                         return;
+                    typescript_1.default.sys.write("[UUID] Found enum: ".concat(node.name.getText(), " in ").concat(sourceFile.fileName));
                     var memberMap = new Map();
                     try {
                         for (var _b = (e_2 = void 0, __values(node.members)), _c = _b.next(); !_c.done; _c = _b.next()) {
                             var member = _c.value;
                             var name_1 = member.name.getText();
-                            memberMap.set(name_1, crypto_1.default.randomUUID());
+                            var uuid = crypto_1.default.randomUUID();
+                            memberMap.set(name_1, uuid);
+                            typescript_1.default.sys.write(" - ".concat(name_1, " \u2192 ").concat(uuid));
                         }
                     }
                     catch (e_2_1) { e_2 = { error: e_2_1 }; }
@@ -65,6 +92,12 @@ var TransformContext = /** @class */ (function () {
                     }
                     _this.EnumUUIDMap.set(symbol, memberMap);
                 });
+            }
+        };
+        try {
+            for (var _b = __values(this.program.getSourceFiles()), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sourceFile = _c.value;
+                _loop_1(sourceFile);
             }
         }
         catch (e_1_1) { e_1 = { error: e_1_1 }; }
@@ -83,11 +116,15 @@ function visitNode(context, node) {
         return context.transform(node);
     var checker = context.program.getTypeChecker();
     var symbol = checker.getSymbolAtLocation(node.name);
-    if (!symbol)
+    if (!symbol) {
+        typescript_1.default.sys.write("[UUID] No symbol for enum: ".concat(node.name.getText()));
         return node;
+    }
     var uuidMap = context.EnumUUIDMap.get(symbol);
-    if (!uuidMap)
+    if (!uuidMap) {
+        typescript_1.default.sys.write("[UUID] Enum not in map (probably missing @uuid): ".concat(node.name.getText()));
         return node;
+    }
     var factory = context.factory;
     var newMembers = node.members.map(function (member) {
         var name = member.name;
@@ -95,16 +132,20 @@ function visitNode(context, node) {
         var uuid = uuidMap.get(key);
         return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
     });
-    // Preserve modifiers (declare, const, etc.)
     var originalModifiers = typescript_1.default.canHaveModifiers(node) ? typescript_1.default.getModifiers(node) : undefined;
+    typescript_1.default.sys.write("[UUID] Rewriting enum: ".concat(node.name.getText()));
     return factory.updateEnumDeclaration(node, originalModifiers, node.name, newMembers);
 }
 /**
- * Entry point for the transformer.
+ * Transformer entry point.
  */
 function transformer(program, config) {
     return function (context) {
         var transformContext = new TransformContext(program, context, config);
-        return function (file) { return transformContext.transform(file); };
+        return function (file) {
+            var result = transformContext.transform(file);
+            // Force emit
+            return typescript_1.default.factory.updateSourceFile(result, __spreadArray([], __read(result.statements), false), true);
+        };
     };
 }
