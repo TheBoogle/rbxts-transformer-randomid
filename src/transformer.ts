@@ -26,29 +26,29 @@ export class TransformContext {
 		const checker = this.program.getTypeChecker();
 
 		for (const sourceFile of this.program.getSourceFiles()) {
-			if (sourceFile.isDeclarationFile || sourceFile.fileName.endsWith(".d.ts")) continue;
+			if (sourceFile.isDeclarationFile || sourceFile.fileName.endsWith(".d.ts")) {
+				ts.forEachChild(sourceFile, (node) => {
+					if (!ts.isEnumDeclaration(node)) return;
 
-			ts.forEachChild(sourceFile, (node) => {
-				if (!ts.isEnumDeclaration(node)) return;
+					const hasUuid = ts.getJSDocTags(node).some((tag) => tag.tagName.text === "uuid");
+					if (!hasUuid) return;
 
-				const hasUuid = ts.getJSDocTags(node).some((tag) => tag.tagName.text === "uuid");
-				if (!hasUuid) return;
+					const symbol = checker.getSymbolAtLocation(node.name);
+					if (!symbol) return;
 
-				const symbol = checker.getSymbolAtLocation(node.name);
-				if (!symbol) return;
+					ts.sys.write(`[UUID] Found enum: ${node.name.getText()} in ${sourceFile.fileName}\n`);
 
-				ts.sys.write(`[UUID] Found enum: ${node.name.getText()} in ${sourceFile.fileName}\n`);
+					const memberMap = new Map<string, string>();
+					for (const member of node.members) {
+						const name = member.name.getText();
+						const uuid = crypto.randomUUID();
+						memberMap.set(name, uuid);
+						ts.sys.write(` - ${name} → ${uuid}\n`);
+					}
 
-				const memberMap = new Map<string, string>();
-				for (const member of node.members) {
-					const name = member.name.getText();
-					const uuid = crypto.randomUUID();
-					memberMap.set(name, uuid);
-					ts.sys.write(` - ${name} → ${uuid}\n`);
-				}
-
-				this.EnumUUIDMap.set(symbol, memberMap);
-			});
+					this.EnumUUIDMap.set(symbol, memberMap);
+				});
+			}
 		}
 	}
 }
@@ -69,15 +69,18 @@ function visitExpression(context: TransformContext, node: ts.Expression): ts.Exp
 		const uuid = uuidMap.get(memberName);
 		if (!uuid) return context.transform(node);
 
+		// Use the full enum member as a type reference, e.g., EMonkeyPacketType.HealthSync
 		const enumFullName = node.getText();
 		const enumType = factory.createTypeReferenceNode(enumFullName, undefined);
 
+		// Cast like: "uuid" as unknown as Enum.Member
 		const castToUnknown = factory.createAsExpression(
 			factory.createStringLiteral(uuid),
 			factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
 		);
+		const finalCast = factory.createAsExpression(castToUnknown, enumType);
 
-		return factory.createAsExpression(castToUnknown, enumType);
+		return finalCast;
 	}
 
 	return context.transform(node);
@@ -88,39 +91,41 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 		return visitExpression(context, node);
 	}
 
-	if (ts.isEnumDeclaration(node)) {
-		const checker = context.program.getTypeChecker();
-		const symbol = checker.getSymbolAtLocation(node.name);
-		if (!symbol) {
-			ts.sys.write(`[UUID] No symbol for enum: ${node.name.getText()}\n`);
-			return node;
-		}
+	if (!ts.isEnumDeclaration(node)) return context.transform(node);
 
-		const uuidMap = context.EnumUUIDMap.get(symbol);
-		if (!uuidMap) {
-			ts.sys.write(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}\n`);
-			return node;
-		}
-
-		const { factory } = context;
-
-		const newMembers = node.members.map((member) => {
-			const name = member.name;
-			const key = name.getText();
-			const uuid = uuidMap.get(key)!;
-
-			return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
-		});
-
-		const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-		ts.sys.write(`[UUID] Rewriting enum: ${node.name.getText()}\n`);
-
-		return factory.updateEnumDeclaration(node, modifiers, node.name, newMembers);
+	const checker = context.program.getTypeChecker();
+	const symbol = checker.getSymbolAtLocation(node.name);
+	if (!symbol) {
+		ts.sys.write(`[UUID] No symbol for enum: ${node.name.getText()}\n`);
+		return node;
 	}
 
-	return context.transform(node);
+	const uuidMap = context.EnumUUIDMap.get(symbol);
+	if (!uuidMap) {
+		ts.sys.write(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}\n`);
+		return node;
+	}
+
+	const { factory } = context;
+
+	const newMembers = node.members.map((member) => {
+		const name = member.name;
+		const key = name.getText();
+		const uuid = uuidMap.get(key)!;
+
+		return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
+	});
+
+	const originalModifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+
+	ts.sys.write(`[UUID] Rewriting enum: ${node.name.getText()}\n`);
+
+	return factory.updateEnumDeclaration(node, originalModifiers, node.name, newMembers);
 }
 
+/**
+ * Transformer entry point.
+ */
 export default function transformer(
 	program: ts.Program,
 	config: TransformerConfig,
@@ -129,6 +134,7 @@ export default function transformer(
 		const transformContext = new TransformContext(program, context, config);
 		return (file: ts.SourceFile) => {
 			const result = transformContext.transform(file);
+			// Force emit
 			return ts.factory.updateSourceFile(result, [...result.statements], true);
 		};
 	};
