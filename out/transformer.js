@@ -136,23 +136,38 @@ function visitNode(context, node) {
     if (typescript_1.default.isExpression(node)) {
         return visitExpression(context, node);
     }
-    if (typescript_1.default.isEnumDeclaration(node)) {
-        var checker = context.program.getTypeChecker();
-        var symbol = checker.getSymbolAtLocation(node.name);
-        if (!symbol)
-            return node;
-        var uuidMap_1 = context.EnumUUIDMap.get(symbol);
-        if (!uuidMap_1)
-            return node;
-        var factory_1 = context.factory;
-        var newMembers = node.members.map(function (member) {
-            var name = member.name;
-            var uuid = uuidMap_1.get(name.getText());
-            return factory_1.updateEnumMember(member, name, factory_1.createStringLiteral(uuid));
-        });
-        return factory_1.updateEnumDeclaration(node, typescript_1.default.getModifiers(node), node.name, newMembers);
+    if (!typescript_1.default.isEnumDeclaration(node))
+        return context.transform(node);
+    // Only patch .d.ts files
+    var sourceFile = node.getSourceFile();
+    if (!sourceFile.fileName.endsWith(".d.ts")) {
+        return node;
     }
-    return context.transform(node);
+    var checker = context.program.getTypeChecker();
+    var symbol = checker.getSymbolAtLocation(node.name);
+    if (!symbol) {
+        typescript_1.default.sys.write("[UUID] No symbol for enum: ".concat(node.name.getText(), "\n"));
+        return node;
+    }
+    var uuidMap = context.EnumUUIDMap.get(symbol);
+    if (!uuidMap) {
+        typescript_1.default.sys.write("[UUID] Enum not in map (probably missing @uuid): ".concat(node.name.getText(), "\n"));
+        return node;
+    }
+    var factory = context.factory;
+    var newMembers = node.members.map(function (member) {
+        var name = member.name;
+        var key = name.getText();
+        var uuid = uuidMap.get(key);
+        // Only replace if no initializer exists
+        if (member.initializer)
+            return member;
+        var uuidLiteral = factory.createStringLiteral(uuid);
+        return factory.updateEnumMember(member, name, uuidLiteral);
+    });
+    var modifiers = typescript_1.default.canHaveModifiers(node) ? typescript_1.default.getModifiers(node) : undefined;
+    typescript_1.default.sys.write("[UUID] Rewriting enum: ".concat(node.name.getText(), "\n"));
+    return factory.updateEnumDeclaration(node, modifiers, node.name, newMembers);
 }
 function transformer(program, config) {
     return function (context) {

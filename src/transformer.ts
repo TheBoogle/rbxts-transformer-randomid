@@ -87,25 +87,46 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 		return visitExpression(context, node);
 	}
 
-	if (ts.isEnumDeclaration(node)) {
-		const checker = context.program.getTypeChecker();
-		const symbol = checker.getSymbolAtLocation(node.name);
-		if (!symbol) return node;
+	if (!ts.isEnumDeclaration(node)) return context.transform(node);
 
-		const uuidMap = context.EnumUUIDMap.get(symbol);
-		if (!uuidMap) return node;
-
-		const { factory } = context;
-		const newMembers = node.members.map((member) => {
-			const name = member.name;
-			const uuid = uuidMap.get(name.getText());
-			return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid!));
-		});
-
-		return factory.updateEnumDeclaration(node, ts.getModifiers(node), node.name, newMembers);
+	// Only patch .d.ts files
+	const sourceFile = node.getSourceFile();
+	if (!sourceFile.fileName.endsWith(".d.ts")) {
+		return node;
 	}
 
-	return context.transform(node);
+	const checker = context.program.getTypeChecker();
+	const symbol = checker.getSymbolAtLocation(node.name);
+	if (!symbol) {
+		ts.sys.write(`[UUID] No symbol for enum: ${node.name.getText()}\n`);
+		return node;
+	}
+
+	const uuidMap = context.EnumUUIDMap.get(symbol);
+	if (!uuidMap) {
+		ts.sys.write(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}\n`);
+		return node;
+	}
+
+	const { factory } = context;
+
+	const newMembers = node.members.map((member) => {
+		const name = member.name;
+		const key = name.getText();
+		const uuid = uuidMap.get(key)!;
+
+		// Only replace if no initializer exists
+		if (member.initializer) return member;
+
+		const uuidLiteral = factory.createStringLiteral(uuid);
+		return factory.updateEnumMember(member, name, uuidLiteral);
+	});
+
+	const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+
+	ts.sys.write(`[UUID] Rewriting enum: ${node.name.getText()}\n`);
+
+	return factory.updateEnumDeclaration(node, modifiers, node.name, newMembers);
 }
 
 export default function transformer(
