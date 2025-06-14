@@ -54,27 +54,26 @@ export class TransformContext {
 }
 
 function visitExpression(context: TransformContext, node: ts.Expression): ts.Expression {
-	const { factory, program, EnumUUIDMap } = context;
-
 	if (ts.isPropertyAccessExpression(node)) {
-		const checker = program.getTypeChecker();
-		const enumSymbol = checker.getSymbolAtLocation(node.expression);
-		const memberSymbol = checker.getSymbolAtLocation(node.name);
-		if (!enumSymbol || !memberSymbol) return context.transform(node);
+		const checker = context.program.getTypeChecker();
 
-		const uuidMap = EnumUUIDMap.get(enumSymbol);
+		// Get the enum's symbol from the left-hand side
+		const enumSymbol = checker.getSymbolAtLocation(node.expression);
+		if (!enumSymbol) return context.transform(node);
+
+		const uuidMap = context.EnumUUIDMap.get(enumSymbol);
 		if (!uuidMap) return context.transform(node);
 
 		const memberName = node.name.getText();
 		const uuid = uuidMap.get(memberName);
 		if (!uuid) return context.transform(node);
 
-		ts.sys.write(`[UUID] Replacing reference to ${memberName} with ${uuid}\n\n`);
+		// SAFELY get the name of the enum for a type reference
+		const typeName = ts.isIdentifier(node.expression) ? node.expression.text : node.expression.getText();
 
-		const enumName = node.expression.getText();
+		const typeNode = context.factory.createTypeReferenceNode(typeName, undefined);
 
-		const typeNode = factory.createTypeReferenceNode(enumName, undefined);
-		return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
+		return context.factory.createAsExpression(context.factory.createStringLiteral(uuid), typeNode);
 	}
 
 	return context.transform(node);
