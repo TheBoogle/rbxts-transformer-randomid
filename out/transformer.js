@@ -127,7 +127,9 @@ function visitExpression(context, node) {
         if (!uuid)
             return context.transform(node);
         typescript_1.default.sys.write("[UUID] Replacing reference to ".concat(memberName, " with ").concat(uuid, "\n\n"));
-        return factory.createStringLiteral(uuid);
+        var enumName = node.expression.getText();
+        var typeNode = factory.createTypeReferenceNode(enumName, undefined);
+        return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
     }
     return context.transform(node);
 }

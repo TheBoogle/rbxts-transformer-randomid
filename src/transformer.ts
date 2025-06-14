@@ -70,7 +70,11 @@ function visitExpression(context: TransformContext, node: ts.Expression): ts.Exp
 		if (!uuid) return context.transform(node);
 
 		ts.sys.write(`[UUID] Replacing reference to ${memberName} with ${uuid}\n\n`);
-		return factory.createStringLiteral(uuid);
+
+		const enumName = node.expression.getText();
+
+		const typeNode = factory.createTypeReferenceNode(enumName, undefined);
+		return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
 	}
 
 	return context.transform(node);
