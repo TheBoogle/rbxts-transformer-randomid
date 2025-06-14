@@ -55,9 +55,10 @@ export class TransformContext {
 
 function visitExpression(context: TransformContext, node: ts.Expression): ts.Expression {
 	const { factory, program, EnumUUIDMap } = context;
-	const checker = program.getTypeChecker();
 
 	if (ts.isPropertyAccessExpression(node)) {
+		const checker = program.getTypeChecker();
+
 		const enumSymbol = checker.getSymbolAtLocation(node.expression);
 		if (!enumSymbol) return context.transform(node);
 
@@ -68,8 +69,12 @@ function visitExpression(context: TransformContext, node: ts.Expression): ts.Exp
 		const uuid = uuidMap.get(memberName);
 		if (!uuid) return context.transform(node);
 
-		// 🧠 Just return the literal
-		return factory.createStringLiteral(uuid);
+		// This is key: cast as the full enum member, like `EMonkeyPacketType.HealthSync`
+		const enumFullName = node.getText();
+
+		const typeNode = factory.createTypeReferenceNode(enumFullName, undefined);
+
+		return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
 	}
 
 	return context.transform(node);

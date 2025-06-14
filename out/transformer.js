@@ -113,8 +113,8 @@ var TransformContext = /** @class */ (function () {
 exports.TransformContext = TransformContext;
 function visitExpression(context, node) {
     var factory = context.factory, program = context.program, EnumUUIDMap = context.EnumUUIDMap;
-    var checker = program.getTypeChecker();
     if (typescript_1.default.isPropertyAccessExpression(node)) {
+        var checker = program.getTypeChecker();
         var enumSymbol = checker.getSymbolAtLocation(node.expression);
         if (!enumSymbol)
             return context.transform(node);
@@ -125,8 +125,10 @@ function visitExpression(context, node) {
         var uuid = uuidMap.get(memberName);
         if (!uuid)
             return context.transform(node);
-        // 🧠 Just return the literal
-        return factory.createStringLiteral(uuid);
+        // This is key: cast as the full enum member, like `EMonkeyPacketType.HealthSync`
+        var enumFullName = node.getText();
+        var typeNode = factory.createTypeReferenceNode(enumFullName, undefined);
+        return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
     }
     return context.transform(node);
 }
