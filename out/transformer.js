@@ -10,36 +10,12 @@ var __values = (this && this.__values) || function(o) {
     };
     throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
 };
-var __read = (this && this.__read) || function (o, n) {
-    var m = typeof Symbol === "function" && o[Symbol.iterator];
-    if (!m) return o;
-    var i = m.call(o), r, ar = [], e;
-    try {
-        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
-    }
-    catch (error) { e = { error: error }; }
-    finally {
-        try {
-            if (r && !r.done && (m = i["return"])) m.call(i);
-        }
-        finally { if (e) throw e.error; }
-    }
-    return ar;
-};
-var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
-    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
-        if (ar || !(i in from)) {
-            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
-            ar[i] = from[i];
-        }
-    }
-    return to.concat(ar || Array.prototype.slice.call(from));
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TransformContext = void 0;
+exports.default = transformer;
 var typescript_1 = __importDefault(require("typescript"));
 var crypto_1 = __importDefault(require("crypto"));
 var TransformContext = /** @class */ (function () {
@@ -47,101 +23,88 @@ var TransformContext = /** @class */ (function () {
         this.program = program;
         this.context = context;
         this.config = config;
-        this.EnumMemberUUIDs = new Map();
+        this.EnumUUIDMap = new Map();
         this.factory = context.factory;
+        this.collectUuidEnums();
     }
     TransformContext.prototype.transform = function (node) {
         var _this = this;
-        return typescript_1.default.visitEachChild(node, function (node) { return visitNode(_this, node); }, this.context);
+        return typescript_1.default.visitEachChild(node, function (child) { return visitNode(_this, child); }, this.context);
+    };
+    TransformContext.prototype.collectUuidEnums = function () {
+        var e_1, _a;
+        var _this = this;
+        var checker = this.program.getTypeChecker();
+        try {
+            for (var _b = __values(this.program.getSourceFiles()), _c = _b.next(); !_c.done; _c = _b.next()) {
+                var sourceFile = _c.value;
+                typescript_1.default.forEachChild(sourceFile, function (node) {
+                    var e_2, _a;
+                    if (!typescript_1.default.isEnumDeclaration(node))
+                        return;
+                    var hasUuid = typescript_1.default.getJSDocTags(node).some(function (tag) { return tag.tagName.text === "uuid"; });
+                    if (!hasUuid)
+                        return;
+                    var symbol = checker.getSymbolAtLocation(node.name);
+                    if (!symbol)
+                        return;
+                    var memberMap = new Map();
+                    try {
+                        for (var _b = (e_2 = void 0, __values(node.members)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                            var member = _c.value;
+                            var name_1 = member.name.getText();
+                            memberMap.set(name_1, crypto_1.default.randomUUID());
+                        }
+                    }
+                    catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                    finally {
+                        try {
+                            if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                        }
+                        finally { if (e_2) throw e_2.error; }
+                    }
+                    _this.EnumUUIDMap.set(symbol, memberMap);
+                });
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
     };
     return TransformContext;
 }());
 exports.TransformContext = TransformContext;
-/**
- * Visits each node and applies necessary transforms.
- */
 function visitNode(context, node) {
-    if (typescript_1.default.isExpression(node)) {
-        return visitExpression(context, node);
-    }
-    return context.transform(node);
-}
-/**
- * Transforms:
- * - $id() → a new UUID per call
- * - Enum.Member → assigned UUID (lazily generated)
- */
-function visitExpression(context, node) {
+    if (!typescript_1.default.isEnumDeclaration(node))
+        return context.transform(node);
+    var checker = context.program.getTypeChecker();
+    var symbol = checker.getSymbolAtLocation(node.name);
+    if (!symbol)
+        return node;
+    var uuidMap = context.EnumUUIDMap.get(symbol);
+    if (!uuidMap)
+        return node;
     var factory = context.factory;
-    // $id() → new UUID
-    if (typescript_1.default.isCallExpression(node)) {
-        var expression = node.expression;
-        if (typescript_1.default.isIdentifier(expression) && expression.text === "$id") {
-            return factory.createStringLiteral(crypto_1.default.randomUUID());
-        }
-    }
-    // Enum.Member → "uuid"
-    if (typescript_1.default.isPropertyAccessExpression(node)) {
-        var checker = context.program.getTypeChecker();
-        var memberSymbol = checker.getSymbolAtLocation(node.name);
-        var enumSymbol = checker.getSymbolAtLocation(node.expression);
-        if (memberSymbol && enumSymbol && isUuidEnum(enumSymbol)) {
-            var uuid = getOrCreateUuid(context, memberSymbol);
-            // Force a replacement node every time, even if UUID hasn't changed
-            return factory.createStringLiteral(uuid);
-        }
-    }
-    return context.transform(node);
+    var newMembers = node.members.map(function (member) {
+        var name = member.name;
+        var key = name.getText();
+        var uuid = uuidMap.get(key);
+        return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
+    });
+    // Preserve modifiers (declare, const, etc.)
+    var originalModifiers = typescript_1.default.canHaveModifiers(node) ? typescript_1.default.getModifiers(node) : undefined;
+    return factory.updateEnumDeclaration(node, originalModifiers, node.name, newMembers);
 }
 /**
- * Returns true if the enum declaration has a @uuid JSDoc tag.
- */
-function isUuidEnum(symbol) {
-    var e_1, _a;
-    var declarations = symbol.getDeclarations();
-    if (!declarations)
-        return false;
-    try {
-        for (var declarations_1 = __values(declarations), declarations_1_1 = declarations_1.next(); !declarations_1_1.done; declarations_1_1 = declarations_1.next()) {
-            var decl = declarations_1_1.value;
-            if (typescript_1.default.isEnumDeclaration(decl)) {
-                var tags = typescript_1.default.getJSDocTags(decl);
-                if (tags.some(function (tag) { return tag.tagName.text === "uuid"; })) {
-                    return true;
-                }
-            }
-        }
-    }
-    catch (e_1_1) { e_1 = { error: e_1_1 }; }
-    finally {
-        try {
-            if (declarations_1_1 && !declarations_1_1.done && (_a = declarations_1.return)) _a.call(declarations_1);
-        }
-        finally { if (e_1) throw e_1.error; }
-    }
-    return false;
-}
-/**
- * Returns the existing UUID for this member, or assigns a new one.
- */
-function getOrCreateUuid(context, symbol) {
-    var existing = context.EnumMemberUUIDs.get(symbol);
-    if (!existing) {
-        existing = crypto_1.default.randomUUID();
-        context.EnumMemberUUIDs.set(symbol, existing);
-    }
-    return existing;
-}
-/**
- * Transformer entry point.
+ * Entry point for the transformer.
  */
 function transformer(program, config) {
     return function (context) {
         var transformContext = new TransformContext(program, context, config);
-        return function (file) {
-            var transformed = transformContext.transform(file);
-            // Touch: update with no-op to ensure emit
-            return typescript_1.default.factory.updateSourceFile(transformed, __spreadArray([], __read(transformed.statements), false), true);
-        };
+        return function (file) { return transformContext.transform(file); };
     };
 }

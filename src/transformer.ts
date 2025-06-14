@@ -7,7 +7,7 @@ export interface TransformerConfig {
 
 export class TransformContext {
 	public factory: ts.NodeFactory;
-	public readonly EnumMemberUUIDs = new Map<ts.Symbol, string>();
+	public readonly EnumUUIDMap = new Map<ts.Symbol, Map<string, string>>();
 
 	constructor(
 		public program: ts.Program,
@@ -15,99 +15,73 @@ export class TransformContext {
 		public config: TransformerConfig,
 	) {
 		this.factory = context.factory;
+		this.collectUuidEnums();
 	}
 
 	transform<T extends ts.Node>(node: T): T {
-		return ts.visitEachChild(node, (node) => visitNode(this, node), this.context);
+		return ts.visitEachChild(node, (child) => visitNode(this, child), this.context);
+	}
+
+	private collectUuidEnums() {
+		const checker = this.program.getTypeChecker();
+
+		for (const sourceFile of this.program.getSourceFiles()) {
+			ts.forEachChild(sourceFile, (node) => {
+				if (!ts.isEnumDeclaration(node)) return;
+
+				const hasUuid = ts.getJSDocTags(node).some((tag) => tag.tagName.text === "uuid");
+				if (!hasUuid) return;
+
+				const symbol = checker.getSymbolAtLocation(node.name);
+				if (!symbol) return;
+
+				const memberMap = new Map<string, string>();
+				for (const member of node.members) {
+					const name = member.name.getText();
+					memberMap.set(name, crypto.randomUUID());
+				}
+
+				this.EnumUUIDMap.set(symbol, memberMap);
+			});
+		}
 	}
 }
 
-/**
- * Visits each node and applies necessary transforms.
- */
 function visitNode(context: TransformContext, node: ts.Node): ts.Node {
-	if (ts.isExpression(node)) {
-		return visitExpression(context, node);
-	}
+	if (!ts.isEnumDeclaration(node)) return context.transform(node);
 
-	return context.transform(node);
-}
+	const checker = context.program.getTypeChecker();
+	const symbol = checker.getSymbolAtLocation(node.name);
+	if (!symbol) return node;
 
-/**
- * Transforms:
- * - $id() → a new UUID per call
- * - Enum.Member → assigned UUID (lazily generated)
- */
-function visitExpression(context: TransformContext, node: ts.Expression): ts.Expression {
+	const uuidMap = context.EnumUUIDMap.get(symbol);
+	if (!uuidMap) return node;
+
 	const { factory } = context;
 
-	// $id() → new UUID
-	if (ts.isCallExpression(node)) {
-		const expression = node.expression;
-		if (ts.isIdentifier(expression) && expression.text === "$id") {
-			return factory.createStringLiteral(crypto.randomUUID());
-		}
-	}
+	const newMembers = node.members.map((member) => {
+		const name = member.name;
+		const key = name.getText();
+		const uuid = uuidMap.get(key)!;
 
-	// Enum.Member → "uuid"
-	if (ts.isPropertyAccessExpression(node)) {
-		const checker = context.program.getTypeChecker();
-		const memberSymbol = checker.getSymbolAtLocation(node.name);
-		const enumSymbol = checker.getSymbolAtLocation(node.expression);
+		return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
+	});
 
-		if (memberSymbol && enumSymbol && isUuidEnum(enumSymbol)) {
-			const uuid = getOrCreateUuid(context, memberSymbol);
+	// Preserve modifiers (declare, const, etc.)
+	const originalModifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
 
-			// Force a replacement node every time, even if UUID hasn't changed
-			return factory.createStringLiteral(uuid);
-		}
-	}
-
-	return context.transform(node);
+	return factory.updateEnumDeclaration(node, originalModifiers, node.name, newMembers);
 }
 
 /**
- * Returns true if the enum declaration has a @uuid JSDoc tag.
+ * Entry point for the transformer.
  */
-function isUuidEnum(symbol: ts.Symbol): boolean {
-	const declarations = symbol.getDeclarations();
-	if (!declarations) return false;
-
-	for (const decl of declarations) {
-		if (ts.isEnumDeclaration(decl)) {
-			const tags = ts.getJSDocTags(decl);
-			if (tags.some((tag) => tag.tagName.text === "uuid")) {
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
-/**
- * Returns the existing UUID for this member, or assigns a new one.
- */
-function getOrCreateUuid(context: TransformContext, symbol: ts.Symbol): string {
-	let existing = context.EnumMemberUUIDs.get(symbol);
-	if (!existing) {
-		existing = crypto.randomUUID();
-		context.EnumMemberUUIDs.set(symbol, existing);
-	}
-	return existing;
-}
-
-/**
- * Transformer entry point.
- */
-function transformer(program: ts.Program, config: TransformerConfig): ts.TransformerFactory<ts.SourceFile> {
+export default function transformer(
+	program: ts.Program,
+	config: TransformerConfig,
+): ts.TransformerFactory<ts.SourceFile> {
 	return (context: ts.TransformationContext) => {
 		const transformContext = new TransformContext(program, context, config);
-		return (file: ts.SourceFile) => {
-			const transformed = transformContext.transform(file);
-
-			// Touch: update with no-op to ensure emit
-			return ts.factory.updateSourceFile(transformed, [...transformed.statements], true);
-		};
+		return (file: ts.SourceFile) => transformContext.transform(file);
 	};
 }
