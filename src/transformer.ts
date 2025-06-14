@@ -37,14 +37,14 @@ export class TransformContext {
 				const symbol = checker.getSymbolAtLocation(node.name);
 				if (!symbol) return;
 
-				ts.sys.write(`[UUID] Found enum: ${node.name.getText()} in ${sourceFile.fileName}\n`);
+				// ts.sys.write(`[UUID] Found enum: ${node.name.getText()} in ${sourceFile.fileName}\n`);
 
 				const memberMap = new Map<string, string>();
 				for (const member of node.members) {
 					const name = member.name.getText();
 					const uuid = crypto.randomUUID();
 					memberMap.set(name, uuid);
-					ts.sys.write(` - ${name} → ${uuid}\n`);
+					// ts.sys.write(` - ${name} → ${uuid}\n`);
 				}
 
 				this.EnumUUIDMap.set(symbol, memberMap);
@@ -98,13 +98,13 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 	const checker = context.program.getTypeChecker();
 	const symbol = checker.getSymbolAtLocation(node.name);
 	if (!symbol) {
-		ts.sys.write(`[UUID] No symbol for enum: ${node.name.getText()}\n`);
+		// ts.sys.write(`[UUID] No symbol for enum: ${node.name.getText()}\n`);
 		return node;
 	}
 
 	const uuidMap = context.EnumUUIDMap.get(symbol);
 	if (!uuidMap) {
-		ts.sys.write(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}\n`);
+		// ts.sys.write(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}\n`);
 		return node;
 	}
 
@@ -124,7 +124,7 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 
 	const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
 
-	ts.sys.write(`[UUID] Rewriting enum: ${node.name.getText()}\n`);
+	// ts.sys.write(`[UUID] Rewriting enum: ${node.name.getText()}\n`);
 
 	return factory.updateEnumDeclaration(node, modifiers, node.name, newMembers);
 }

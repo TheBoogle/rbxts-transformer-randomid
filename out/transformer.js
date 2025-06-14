@@ -60,44 +60,41 @@ var TransformContext = /** @class */ (function () {
         var e_1, _a;
         var _this = this;
         var checker = this.program.getTypeChecker();
-        var _loop_1 = function (sourceFile) {
-            if (!sourceFile.fileName.endsWith(".d.ts"))
-                return "continue";
-            typescript_1.default.forEachChild(sourceFile, function (node) {
-                var e_2, _a;
-                if (!typescript_1.default.isEnumDeclaration(node))
-                    return;
-                var hasUuid = typescript_1.default.getJSDocTags(node).some(function (tag) { return tag.tagName.text === "uuid"; });
-                if (!hasUuid)
-                    return;
-                var symbol = checker.getSymbolAtLocation(node.name);
-                if (!symbol)
-                    return;
-                typescript_1.default.sys.write("[UUID] Found enum: ".concat(node.name.getText(), " in ").concat(sourceFile.fileName, "\n"));
-                var memberMap = new Map();
-                try {
-                    for (var _b = (e_2 = void 0, __values(node.members)), _c = _b.next(); !_c.done; _c = _b.next()) {
-                        var member = _c.value;
-                        var name_1 = member.name.getText();
-                        var uuid = crypto_1.default.randomUUID();
-                        memberMap.set(name_1, uuid);
-                        typescript_1.default.sys.write(" - ".concat(name_1, " \u2192 ").concat(uuid, "\n"));
-                    }
-                }
-                catch (e_2_1) { e_2 = { error: e_2_1 }; }
-                finally {
-                    try {
-                        if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
-                    }
-                    finally { if (e_2) throw e_2.error; }
-                }
-                _this.EnumUUIDMap.set(symbol, memberMap);
-            });
-        };
         try {
             for (var _b = __values(this.program.getSourceFiles()), _c = _b.next(); !_c.done; _c = _b.next()) {
                 var sourceFile = _c.value;
-                _loop_1(sourceFile);
+                if (!sourceFile.fileName.endsWith(".d.ts"))
+                    continue;
+                typescript_1.default.forEachChild(sourceFile, function (node) {
+                    var e_2, _a;
+                    if (!typescript_1.default.isEnumDeclaration(node))
+                        return;
+                    var hasUuid = typescript_1.default.getJSDocTags(node).some(function (tag) { return tag.tagName.text === "uuid"; });
+                    if (!hasUuid)
+                        return;
+                    var symbol = checker.getSymbolAtLocation(node.name);
+                    if (!symbol)
+                        return;
+                    // ts.sys.write(`[UUID] Found enum: ${node.name.getText()} in ${sourceFile.fileName}\n`);
+                    var memberMap = new Map();
+                    try {
+                        for (var _b = (e_2 = void 0, __values(node.members)), _c = _b.next(); !_c.done; _c = _b.next()) {
+                            var member = _c.value;
+                            var name_1 = member.name.getText();
+                            var uuid = crypto_1.default.randomUUID();
+                            memberMap.set(name_1, uuid);
+                            // ts.sys.write(` - ${name} → ${uuid}\n`);
+                        }
+                    }
+                    catch (e_2_1) { e_2 = { error: e_2_1 }; }
+                    finally {
+                        try {
+                            if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+                        }
+                        finally { if (e_2) throw e_2.error; }
+                    }
+                    _this.EnumUUIDMap.set(symbol, memberMap);
+                });
             }
         }
         catch (e_1_1) { e_1 = { error: e_1_1 }; }
@@ -146,12 +143,12 @@ function visitNode(context, node) {
     var checker = context.program.getTypeChecker();
     var symbol = checker.getSymbolAtLocation(node.name);
     if (!symbol) {
-        typescript_1.default.sys.write("[UUID] No symbol for enum: ".concat(node.name.getText(), "\n"));
+        // ts.sys.write(`[UUID] No symbol for enum: ${node.name.getText()}\n`);
         return node;
     }
     var uuidMap = context.EnumUUIDMap.get(symbol);
     if (!uuidMap) {
-        typescript_1.default.sys.write("[UUID] Enum not in map (probably missing @uuid): ".concat(node.name.getText(), "\n"));
+        // ts.sys.write(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}\n`);
         return node;
     }
     var factory = context.factory;
@@ -166,7 +163,7 @@ function visitNode(context, node) {
         return factory.updateEnumMember(member, name, uuidLiteral);
     });
     var modifiers = typescript_1.default.canHaveModifiers(node) ? typescript_1.default.getModifiers(node) : undefined;
-    typescript_1.default.sys.write("[UUID] Rewriting enum: ".concat(node.name.getText(), "\n"));
+    // ts.sys.write(`[UUID] Rewriting enum: ${node.name.getText()}\n`);
     return factory.updateEnumDeclaration(node, modifiers, node.name, newMembers);
 }
 function transformer(program, config) {
