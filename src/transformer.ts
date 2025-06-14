@@ -26,23 +26,29 @@ export class TransformContext {
 		const checker = this.program.getTypeChecker();
 
 		for (const sourceFile of this.program.getSourceFiles()) {
-			ts.forEachChild(sourceFile, (node) => {
-				if (!ts.isEnumDeclaration(node)) return;
+			if (sourceFile.isDeclarationFile || sourceFile.fileName.endsWith(".d.ts")) {
+				ts.forEachChild(sourceFile, (node) => {
+					if (!ts.isEnumDeclaration(node)) return;
 
-				const hasUuid = ts.getJSDocTags(node).some((tag) => tag.tagName.text === "uuid");
-				if (!hasUuid) return;
+					const hasUuid = ts.getJSDocTags(node).some((tag) => tag.tagName.text === "uuid");
+					if (!hasUuid) return;
 
-				const symbol = checker.getSymbolAtLocation(node.name);
-				if (!symbol) return;
+					const symbol = checker.getSymbolAtLocation(node.name);
+					if (!symbol) return;
 
-				const memberMap = new Map<string, string>();
-				for (const member of node.members) {
-					const name = member.name.getText();
-					memberMap.set(name, crypto.randomUUID());
-				}
+					console.log(`[UUID] Found enum: ${node.name.getText()} in ${sourceFile.fileName}`);
 
-				this.EnumUUIDMap.set(symbol, memberMap);
-			});
+					const memberMap = new Map<string, string>();
+					for (const member of node.members) {
+						const name = member.name.getText();
+						const uuid = crypto.randomUUID();
+						memberMap.set(name, uuid);
+						console.log(` - ${name} → ${uuid}`);
+					}
+
+					this.EnumUUIDMap.set(symbol, memberMap);
+				});
+			}
 		}
 	}
 }
@@ -52,10 +58,16 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 
 	const checker = context.program.getTypeChecker();
 	const symbol = checker.getSymbolAtLocation(node.name);
-	if (!symbol) return node;
+	if (!symbol) {
+		console.log(`[UUID] No symbol for enum: ${node.name.getText()}`);
+		return node;
+	}
 
 	const uuidMap = context.EnumUUIDMap.get(symbol);
-	if (!uuidMap) return node;
+	if (!uuidMap) {
+		console.log(`[UUID] Enum not in map (probably missing @uuid): ${node.name.getText()}`);
+		return node;
+	}
 
 	const { factory } = context;
 
@@ -67,14 +79,15 @@ function visitNode(context: TransformContext, node: ts.Node): ts.Node {
 		return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
 	});
 
-	// Preserve modifiers (declare, const, etc.)
 	const originalModifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+
+	console.log(`[UUID] Rewriting enum: ${node.name.getText()}`);
 
 	return factory.updateEnumDeclaration(node, originalModifiers, node.name, newMembers);
 }
 
 /**
- * Entry point for the transformer.
+ * Transformer entry point.
  */
 export default function transformer(
 	program: ts.Program,
@@ -82,6 +95,10 @@ export default function transformer(
 ): ts.TransformerFactory<ts.SourceFile> {
 	return (context: ts.TransformationContext) => {
 		const transformContext = new TransformContext(program, context, config);
-		return (file: ts.SourceFile) => transformContext.transform(file);
+		return (file: ts.SourceFile) => {
+			const result = transformContext.transform(file);
+			// Force emit
+			return ts.factory.updateSourceFile(result, [...result.statements], true);
+		};
 	};
 }
