@@ -69,12 +69,18 @@ function visitExpression(context: TransformContext, node: ts.Expression): ts.Exp
 		const uuid = uuidMap.get(memberName);
 		if (!uuid) return context.transform(node);
 
-		// This is key: cast as the full enum member, like `EMonkeyPacketType.HealthSync`
+		// Use the full enum member as a type reference, e.g., EMonkeyPacketType.HealthSync
 		const enumFullName = node.getText();
+		const enumType = factory.createTypeReferenceNode(enumFullName, undefined);
 
-		const typeNode = factory.createTypeReferenceNode(enumFullName, undefined);
+		// Cast like: "uuid" as unknown as Enum.Member
+		const castToUnknown = factory.createAsExpression(
+			factory.createStringLiteral(uuid),
+			factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+		);
+		const finalCast = factory.createAsExpression(castToUnknown, enumType);
 
-		return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
+		return finalCast;
 	}
 
 	return context.transform(node);

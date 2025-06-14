@@ -125,10 +125,13 @@ function visitExpression(context, node) {
         var uuid = uuidMap.get(memberName);
         if (!uuid)
             return context.transform(node);
-        // This is key: cast as the full enum member, like `EMonkeyPacketType.HealthSync`
+        // Use the full enum member as a type reference, e.g., EMonkeyPacketType.HealthSync
         var enumFullName = node.getText();
-        var typeNode = factory.createTypeReferenceNode(enumFullName, undefined);
-        return factory.createAsExpression(factory.createStringLiteral(uuid), typeNode);
+        var enumType = factory.createTypeReferenceNode(enumFullName, undefined);
+        // Cast like: "uuid" as unknown as Enum.Member
+        var castToUnknown = factory.createAsExpression(factory.createStringLiteral(uuid), factory.createKeywordTypeNode(typescript_1.default.SyntaxKind.UnknownKeyword));
+        var finalCast = factory.createAsExpression(castToUnknown, enumType);
+        return finalCast;
     }
     return context.transform(node);
 }
