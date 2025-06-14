@@ -72,7 +72,7 @@ var TransformContext = /** @class */ (function () {
                     var symbol = checker.getSymbolAtLocation(node.name);
                     if (!symbol)
                         return;
-                    typescript_1.default.sys.write("[UUID] Found enum: ".concat(node.name.getText(), " in ").concat(sourceFile.fileName));
+                    typescript_1.default.sys.write("[UUID] Found enum: ".concat(node.name.getText(), " in ").concat(sourceFile.fileName, "\n"));
                     var memberMap = new Map();
                     try {
                         for (var _b = (e_2 = void 0, __values(node.members)), _c = _b.next(); !_c.done; _c = _b.next()) {
@@ -80,7 +80,7 @@ var TransformContext = /** @class */ (function () {
                             var name_1 = member.name.getText();
                             var uuid = crypto_1.default.randomUUID();
                             memberMap.set(name_1, uuid);
-                            typescript_1.default.sys.write(" - ".concat(name_1, " \u2192 ").concat(uuid));
+                            typescript_1.default.sys.write(" - ".concat(name_1, " \u2192 ").concat(uuid, "\n"));
                         }
                     }
                     catch (e_2_1) { e_2 = { error: e_2_1 }; }
@@ -111,18 +111,41 @@ var TransformContext = /** @class */ (function () {
     return TransformContext;
 }());
 exports.TransformContext = TransformContext;
+function visitExpression(context, node) {
+    var factory = context.factory, program = context.program, EnumUUIDMap = context.EnumUUIDMap;
+    if (typescript_1.default.isPropertyAccessExpression(node)) {
+        var checker = program.getTypeChecker();
+        var enumSymbol = checker.getSymbolAtLocation(node.expression);
+        var memberSymbol = checker.getSymbolAtLocation(node.name);
+        if (!enumSymbol || !memberSymbol)
+            return context.transform(node);
+        var uuidMap = EnumUUIDMap.get(enumSymbol);
+        if (!uuidMap)
+            return context.transform(node);
+        var memberName = node.name.getText();
+        var uuid = uuidMap.get(memberName);
+        if (!uuid)
+            return context.transform(node);
+        typescript_1.default.sys.write("[UUID] Replacing reference to ".concat(memberName, " with ").concat(uuid, "\n\n"));
+        return factory.createStringLiteral(uuid);
+    }
+    return context.transform(node);
+}
 function visitNode(context, node) {
+    if (typescript_1.default.isExpression(node)) {
+        return visitExpression(context, node);
+    }
     if (!typescript_1.default.isEnumDeclaration(node))
         return context.transform(node);
     var checker = context.program.getTypeChecker();
     var symbol = checker.getSymbolAtLocation(node.name);
     if (!symbol) {
-        typescript_1.default.sys.write("[UUID] No symbol for enum: ".concat(node.name.getText()));
+        typescript_1.default.sys.write("[UUID] No symbol for enum: ".concat(node.name.getText(), "\n"));
         return node;
     }
     var uuidMap = context.EnumUUIDMap.get(symbol);
     if (!uuidMap) {
-        typescript_1.default.sys.write("[UUID] Enum not in map (probably missing @uuid): ".concat(node.name.getText()));
+        typescript_1.default.sys.write("[UUID] Enum not in map (probably missing @uuid): ".concat(node.name.getText(), "\n"));
         return node;
     }
     var factory = context.factory;
@@ -133,7 +156,7 @@ function visitNode(context, node) {
         return factory.updateEnumMember(member, name, factory.createStringLiteral(uuid));
     });
     var originalModifiers = typescript_1.default.canHaveModifiers(node) ? typescript_1.default.getModifiers(node) : undefined;
-    typescript_1.default.sys.write("[UUID] Rewriting enum: ".concat(node.name.getText()));
+    typescript_1.default.sys.write("[UUID] Rewriting enum: ".concat(node.name.getText(), "\n"));
     return factory.updateEnumDeclaration(node, originalModifiers, node.name, newMembers);
 }
 /**
