@@ -112,23 +112,21 @@ var TransformContext = /** @class */ (function () {
 }());
 exports.TransformContext = TransformContext;
 function visitExpression(context, node) {
+    var factory = context.factory, program = context.program, EnumUUIDMap = context.EnumUUIDMap;
+    var checker = program.getTypeChecker();
     if (typescript_1.default.isPropertyAccessExpression(node)) {
-        var checker = context.program.getTypeChecker();
-        // Get the enum's symbol from the left-hand side
         var enumSymbol = checker.getSymbolAtLocation(node.expression);
         if (!enumSymbol)
             return context.transform(node);
-        var uuidMap = context.EnumUUIDMap.get(enumSymbol);
+        var uuidMap = EnumUUIDMap.get(enumSymbol);
         if (!uuidMap)
             return context.transform(node);
         var memberName = node.name.getText();
         var uuid = uuidMap.get(memberName);
         if (!uuid)
             return context.transform(node);
-        // SAFELY get the name of the enum for a type reference
-        var typeName = typescript_1.default.isIdentifier(node.expression) ? node.expression.text : node.expression.getText();
-        var typeNode = context.factory.createTypeReferenceNode(typeName, undefined);
-        return context.factory.createAsExpression(context.factory.createStringLiteral(uuid), typeNode);
+        // 🧠 Just return the literal
+        return factory.createStringLiteral(uuid);
     }
     return context.transform(node);
 }
